@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 
 import { LogBus } from "./logBus";
-import type { JobKind, JobSnapshot, JobStatus } from "./types";
+import {
+  appendLogEntry,
+  ensureJobDirSync,
+  jobDir,
+  removeJobDir,
+  toMeta,
+  writeMeta,
+} from "./persistence";
+import type { JobKind, JobSnapshot, JobStatus, LogBusEvent } from "./types";
 
 export interface Job {
   id: string;
@@ -69,6 +77,34 @@ export function createJob({ kind, name, config, stop }: CreateJobOptions): Job {
   });
 
   store.set(id, job);
+
+  // Persist to disk (fire-and-forget). If the data dir is unwritable we log
+  // once and leave the job memory-only rather than failing the session start.
+  let persistDir: string | null = null;
+  try {
+    persistDir = ensureJobDirSync(job);
+    void writeMeta(persistDir, toMeta(job)).catch((err) =>
+      console.error(`[jobs] initial meta write failed for ${job.id}:`, err),
+    );
+  } catch (err) {
+    console.error(`[jobs] persistence disabled for ${job.id}:`, err);
+  }
+
+  if (persistDir) {
+    const dir = persistDir;
+    bus.on("event", (ev: LogBusEvent) => {
+      if (ev.type === "log") {
+        void appendLogEntry(dir, ev.entry).catch((err) =>
+          console.error(`[jobs] append log failed for ${job.id}:`, err),
+        );
+      } else if (ev.type === "status" || ev.type === "stats") {
+        void writeMeta(dir, toMeta(job)).catch((err) =>
+          console.error(`[jobs] meta rewrite failed for ${job.id}:`, err),
+        );
+      }
+    });
+  }
+
   return job;
 }
 
@@ -95,6 +131,9 @@ export function removeJob(id: string): boolean {
     void job.stop();
   }
   store.delete(id);
+  void removeJobDir(jobDir(job)).catch((err) =>
+    console.error(`[jobs] remove dir failed for ${id}:`, err),
+  );
   return true;
 }
 

@@ -4,8 +4,8 @@ import path from "node:path";
 const DATA_DIR = path.resolve(process.cwd(), "data");
 
 /**
- * Canonical data subdirectories. Each entry is a path relative to data/.
- * Structure:
+ * Canonical data subdirectories holding user-authored YAML configuration.
+ * Each entry is a path relative to data/.
  *   data/profiles/client/   — client profiles used by Client Emulator
  *   data/profiles/servers/  — RADIUS server targets (host, port, secret)
  *   data/coa/               — CoA server simulator configs
@@ -18,6 +18,15 @@ export const DATA_SUBDIRS = [
   "tests",
 ] as const;
 export type DataSubdir = (typeof DATA_SUBDIRS)[number];
+
+/**
+ * Runtime subdirectories owned by the app (not by the user). Created on
+ * startup alongside DATA_SUBDIRS but excluded from safeDataPath / the YAML
+ * store (their contents are JSON and JSONL, not YAML).
+ *   data/jobs/              — per-job persisted meta.json + logs.jsonl
+ */
+export const RUNTIME_SUBDIRS = ["jobs"] as const;
+export type RuntimeSubdir = (typeof RUNTIME_SUBDIRS)[number];
 
 const SUBDIR_SET = new Set<string>(DATA_SUBDIRS);
 
@@ -69,8 +78,13 @@ export function dataDir(): string {
   return DATA_DIR;
 }
 
+export function jobsDir(): string {
+  return path.join(DATA_DIR, "jobs");
+}
+
 export async function ensureDataDirs(): Promise<void> {
+  const all = [...DATA_SUBDIRS, ...RUNTIME_SUBDIRS];
   await Promise.all(
-    DATA_SUBDIRS.map((sub) => fs.mkdir(path.join(DATA_DIR, sub), { recursive: true })),
+    all.map((sub) => fs.mkdir(path.join(DATA_DIR, sub), { recursive: true })),
   );
 }
