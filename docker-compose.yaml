@@ -1,0 +1,18 @@
+services:
+  radchecker:
+    # image: ghcr.io/azdolinski/radchecker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: radchecker:latest
+    container_name: radchecker
+    restart: unless-stopped
+    ports:
+      - "4444:4444"       # Web interface
+      - "3799:3799/udp"   # RADIUS CoA/Disconnects
+    volumes:
+      - ./data:/app/data
+    environment:
+      NODE_ENV: production
+      PORT: 4444
+      HOSTNAME: 0.0.0.0
