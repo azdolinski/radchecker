@@ -12,6 +12,19 @@ export interface LogEntry {
   data?: unknown;
 }
 
+/** Structured RADIUS packet log — attached as `data: { packet }` on LogEntry for rich UI rendering. */
+export interface PacketLog {
+  direction: "tx" | "rx";
+  code: string;
+  identifier: number;
+  attributes: Array<[string, unknown]>;
+  latencyMs?: number;
+  attempts?: number;
+  src?: string;
+  dst?: string;
+  step?: string;
+}
+
 export interface JobStats {
   /** Free-form stats bag, shape depends on JobKind. */
   [k: string]: unknown;

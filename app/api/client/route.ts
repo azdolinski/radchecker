@@ -77,6 +77,16 @@ export async function POST(req: Request) {
           },
           onLog: (msg, data) => job.bus.info(msg, data),
           onStateChange: (state) => job.bus.info(`state → ${state}`),
+          onPacket: (packet) => {
+            const arrow = packet.direction === "tx" ? ">>>" : "<<<";
+            const verb = packet.direction === "tx" ? "SENDING" : "RECEIVED";
+            const lat =
+              packet.latencyMs != null ? ` (${packet.latencyMs.toFixed(1)}ms)` : "";
+            job.bus.info(
+              `${arrow} ${verb} ${packet.code} Id=${packet.identifier} ${packet.src} → ${packet.dst}${lat}`,
+              { packet },
+            );
+          },
         });
         if (outcome.ok) {
           job.bus.info(`session completed · ${outcome.packetsSent} packets`, {

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { AttributeTuple } from "radius";
 
+import type { PacketLog } from "@/lib/jobs/types";
 import type { ClientProfile, ServerConfig } from "@/lib/storage/schemas";
 import { encodeChap } from "./chap";
 import { baseClientAttributes, buildServerTargets, sendRadiusPacket } from "./client";
@@ -18,6 +19,7 @@ export interface SessionEvents {
   onLog?: (message: string, data?: unknown) => void;
   onReply?: (code: string, latencyMs: number) => void;
   onStateChange?: (state: SessionState) => void;
+  onPacket?: (packet: PacketLog) => void;
   shouldStop?: () => boolean;
 }
 
@@ -61,6 +63,19 @@ export async function runSession(
   const sessionId = `sess-${randomBytes(8).toString("hex")}`;
   const framedIp = profile.session.framedIp ?? "10.0.0.1";
 
+  // Step framing — matches the "=== Step N/Total: Label ===" format used by radtest.sh.
+  // Total = Access-Request + Accounting-Start + (N interim updates) + Accounting-Stop.
+  // The interim count matches the loop below, which terminates when the deadline passes.
+  const interval = Math.max(1, profile.session.interimIntervalSeconds);
+  const estimatedInterims = Math.max(
+    0,
+    Math.floor(profile.session.durationSeconds / interval) - 1,
+  );
+  const totalSteps = 2 + estimatedInterims + 1;
+  let stepNum = 0;
+  const stepHeader = (label: string) =>
+    events.onLog?.(`=== Step ${++stepNum}/${totalSteps}: ${label} ===`);
+
   // --- Access-Request -------------------------------------------------------
   const authAttrs: AttributeTuple[] =
     profile.user.authType === "chap"
@@ -80,6 +95,7 @@ export async function runSession(
         ];
 
   transition("auth-sent");
+  stepHeader("Authentication");
   try {
     const authRes = await sendRadiusPacket({
       code: "Access-Request",
@@ -89,12 +105,13 @@ export async function runSession(
       attributes: authAttrs,
       timeoutMs,
       retries,
+      onPacket: events.onPacket,
+      step: "Authentication",
     });
     outcome.packetsSent += 1;
     outcome.latencyMs.push(authRes.latencyMs);
     outcome.authCode = authRes.reply.code;
     events.onReply?.(authRes.reply.code, authRes.latencyMs);
-    events.onLog?.(`auth reply ${authRes.reply.code}`, { identifier: authRes.reply.identifier });
 
     if (authRes.reply.code !== "Access-Accept") {
       transition("auth-rejected");
@@ -119,6 +136,7 @@ export async function runSession(
   ];
 
   transition("acct-start-sent");
+  stepHeader("Accounting-Start");
   try {
     const res = await sendRadiusPacket({
       code: "Accounting-Request",
@@ -128,6 +146,8 @@ export async function runSession(
       attributes: [...acctBase, ["Acct-Status-Type", "Start"]],
       timeoutMs,
       retries,
+      onPacket: events.onPacket,
+      step: "Accounting-Start",
     });
     outcome.packetsSent += 1;
     outcome.latencyMs.push(res.latencyMs);
@@ -163,6 +183,8 @@ export async function runSession(
     );
     interimCount += 1;
 
+    const interimLabel = `Interim-Update #${interimCount}`;
+    stepHeader(interimLabel);
     try {
       const res = await sendRadiusPacket({
         code: "Accounting-Request",
@@ -178,6 +200,8 @@ export async function runSession(
         ],
         timeoutMs,
         retries,
+        onPacket: events.onPacket,
+        step: interimLabel,
       });
       outcome.packetsSent += 1;
       outcome.latencyMs.push(res.latencyMs);
@@ -189,6 +213,7 @@ export async function runSession(
 
   // --- Accounting-Stop ------------------------------------------------------
   transition("acct-stop-sent");
+  stepHeader("Accounting-Stop");
   try {
     const res = await sendRadiusPacket({
       code: "Accounting-Request",
@@ -205,6 +230,8 @@ export async function runSession(
       ],
       timeoutMs,
       retries,
+      onPacket: events.onPacket,
+      step: "Accounting-Stop",
     });
     outcome.packetsSent += 1;
     outcome.latencyMs.push(res.latencyMs);

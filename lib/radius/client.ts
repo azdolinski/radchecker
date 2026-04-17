@@ -2,6 +2,7 @@ import dgram from "node:dgram";
 import { randomBytes } from "node:crypto";
 import radius, { type AttributeTuple, type DecodedPacket } from "radius";
 
+import type { PacketLog } from "@/lib/jobs/types";
 import type { ServerConfig } from "@/lib/storage/schemas";
 
 export interface SendOptions {
@@ -18,12 +19,18 @@ export interface SendOptions {
   retries: number;
   /** Optional identifier (usually assigned by socket). */
   identifier?: number;
+  /** Emit a structured tx/rx event per packet (for rich log rendering). */
+  onPacket?: (p: PacketLog) => void;
+  /** Short label forwarded into PacketLog.step (e.g. "Authentication", "Interim-Update #3"). */
+  step?: string;
 }
 
 export interface SendResult {
   reply: DecodedPacket;
   latencyMs: number;
   attempts: number;
+  src?: string;
+  dst?: string;
 }
 
 let nextId = 0;
@@ -59,9 +66,23 @@ export async function sendRadiusPacket(opts: SendOptions): Promise<SendResult> {
       socket.bind(0, () => resolve());
     });
 
+    const local = socket.address();
+    const src = `${local.address}:${local.port}`;
+    const dst = `${opts.host}:${opts.port}`;
+
     for (let attempt = 0; attempt <= opts.retries; attempt++) {
       attempts = attempt + 1;
       const sentAt = performance.now();
+
+      opts.onPacket?.({
+        direction: "tx",
+        code: opts.code,
+        identifier,
+        attributes: opts.attributes,
+        src,
+        dst,
+        step: opts.step,
+      });
 
       await new Promise<void>((resolve, reject) => {
         socket.send(packet, opts.port, opts.host, (err) => (err ? reject(err) : resolve()));
@@ -90,7 +111,18 @@ export async function sendRadiusPacket(opts: SendOptions): Promise<SendResult> {
 
       if (reply) {
         const latencyMs = performance.now() - sentAt;
-        return { reply, latencyMs, attempts };
+        opts.onPacket?.({
+          direction: "rx",
+          code: reply.code,
+          identifier: reply.identifier,
+          attributes: flattenReplyAttributes(reply.attributes),
+          latencyMs,
+          attempts,
+          src: dst,
+          dst: src,
+          step: opts.step,
+        });
+        return { reply, latencyMs, attempts, src, dst };
       }
     }
     const latencyMs = performance.now() - started;
@@ -98,6 +130,25 @@ export async function sendRadiusPacket(opts: SendOptions): Promise<SendResult> {
   } finally {
     socket.close();
   }
+}
+
+/**
+ * Convert the decoded `attributes` hash into ordered name→value tuples.
+ * `radius.decode` returns duplicates as arrays (e.g. multiple `Reply-Message`),
+ * which we flatten into repeated tuples so the UI shows each value on its own line.
+ */
+function flattenReplyAttributes(
+  attrs: Record<string, string | number | Buffer | Array<string | number | Buffer>>,
+): Array<[string, unknown]> {
+  const out: Array<[string, unknown]> = [];
+  for (const [name, value] of Object.entries(attrs)) {
+    if (Array.isArray(value)) {
+      for (const v of value) out.push([name, v]);
+    } else {
+      out.push([name, value]);
+    }
+  }
+  return out;
 }
 
 export class RadiusTimeoutError extends Error {
