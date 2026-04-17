@@ -27,11 +27,13 @@ RUN addgroup --system --gid 1001 nodejs \
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/data ./data
+# `data/` is user configuration and is bind-mounted at runtime (see docs/notes/devops.md).
+# The app creates the required skeleton on startup via instrumentation.ts.
 # `radius` is declared in serverExternalPackages and resolves its dictionary
 # files via __dirname at runtime, so the package must exist on disk.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/radius ./node_modules/radius
 
 USER nextjs
 EXPOSE 4444
+VOLUME ["/app/data"]
 CMD ["node", "server.js"]

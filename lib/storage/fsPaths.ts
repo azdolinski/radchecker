@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import path from "node:path";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
@@ -66,4 +67,10 @@ export function safeDataPath(rel: string): string {
 
 export function dataDir(): string {
   return DATA_DIR;
+}
+
+export async function ensureDataDirs(): Promise<void> {
+  await Promise.all(
+    DATA_SUBDIRS.map((sub) => fs.mkdir(path.join(DATA_DIR, sub), { recursive: true })),
+  );
 }

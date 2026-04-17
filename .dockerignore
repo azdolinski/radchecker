@@ -4,6 +4,7 @@ node_modules
 .github
 tmp
 docs
+data
 *.md
 .env
 .env.*
