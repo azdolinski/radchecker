@@ -7,10 +7,10 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogLine } from "@/components/jobs/log-line";
 import { StatusBadge } from "@/components/jobs/status-badge";
 import { useJobLogs } from "@/hooks/useJobLogs";
-import type { JobKind, JobSnapshot, LogEntry } from "@/lib/jobs/types";
-import { cn } from "@/lib/utils";
+import type { JobKind, JobSnapshot } from "@/lib/jobs/types";
 
 const KIND_ICON: Record<JobKind, typeof Radio> = {
   "coa-server": Radio,
@@ -179,29 +179,6 @@ export function JobDetail({ snapshot }: { snapshot: JobSnapshot }) {
           </div>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function LogLine({ log }: { log: LogEntry }) {
-  return (
-    <div className="flex gap-2 py-0.5">
-      <span className="shrink-0 text-[color:var(--color-muted-foreground)]">
-        {new Date(log.ts).toLocaleTimeString(undefined, {
-          hour12: false,
-          fractionalSecondDigits: 3,
-        })}
-      </span>
-      <span
-        className={cn(
-          "min-w-0 flex-1 break-all",
-          log.level === "error" && "text-red-500",
-          log.level === "warn" && "text-amber-500",
-          log.level === "debug" && "text-[color:var(--color-muted-foreground)]",
-        )}
-      >
-        {log.message}
-      </span>
     </div>
   );
 }
