@@ -163,19 +163,34 @@ export function ClientProfileForm({ value, onChange, errors, mode }: ClientProfi
         title="Accounting"
         subtitle="Session duration, interim cadence, and random traffic reported in every Interim packet"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex w-full items-center justify-between">
           <span className="text-xs font-medium">Accounting</span>
           <button
             type="button"
+            role="switch"
+            aria-checked={!value.accounting.disabled}
             onClick={() => setAccounting({ disabled: !value.accounting.disabled })}
             className={cn(
-              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+              "relative inline-flex h-7 w-16 shrink-0 items-center rounded-full shadow-inner transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-ring)] focus-visible:ring-offset-2",
               value.accounting.disabled
-                ? "bg-zinc-500/15 text-zinc-600 dark:text-zinc-400"
-                : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+                ? "bg-zinc-500/40 dark:bg-zinc-600/60"
+                : "bg-emerald-500",
             )}
           >
-            {value.accounting.disabled ? "OFF" : "ON"}
+            <span
+              className={cn(
+                "absolute text-[10px] font-bold tracking-wide text-white transition-all",
+                value.accounting.disabled ? "right-2" : "left-2.5",
+              )}
+            >
+              {value.accounting.disabled ? "OFF" : "ON"}
+            </span>
+            <span
+              className={cn(
+                "inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform duration-200",
+                value.accounting.disabled ? "translate-x-1" : "translate-x-10",
+              )}
+            />
           </button>
         </div>
         {value.accounting.disabled ? (
