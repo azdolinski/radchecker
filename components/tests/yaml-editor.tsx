@@ -14,18 +14,20 @@ export function YamlEditor({
   onChange,
   readOnly,
   height = "calc(100vh - 260px)",
+  language = "yaml",
 }: {
   value: string;
   onChange: (next: string) => void;
   readOnly?: boolean;
   height?: string;
+  language?: string;
 }) {
   const { resolvedTheme } = useTheme();
   const theme = useMemo(() => (resolvedTheme === "dark" ? "vs-dark" : "light"), [resolvedTheme]);
 
   return (
     <MonacoEditor
-      language="yaml"
+      language={language}
       value={value}
       theme={theme}
       onChange={(v) => onChange(v ?? "")}

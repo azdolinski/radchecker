@@ -237,14 +237,26 @@ export function FileBrowser() {
 
   const onCreate = async () => {
     if (!newFor || !newName.trim()) return;
-    const filename = newName.endsWith(".yaml") ? newName : `${newName}.yaml`;
-    if (!/^[a-zA-Z0-9._-]+\.yaml$/.test(filename)) {
-      toast.error("Invalid name — use [a-zA-Z0-9._-]");
-      return;
+    const trimmed = newName.trim();
+    const inDictionaryDir = newFor === "dictionary";
+    // Dictionary files use FreeRADIUS naming `dictionary.<stem>` — no .yaml extension.
+    let filename: string;
+    if (inDictionaryDir) {
+      filename = trimmed.startsWith("dictionary.") ? trimmed : `dictionary.${trimmed}`;
+      if (!/^dictionary\.[A-Za-z0-9_.-]+$/.test(filename)) {
+        toast.error("Invalid name — use dictionary.<stem> with [a-zA-Z0-9._-] only");
+        return;
+      }
+    } else {
+      filename = trimmed.endsWith(".yaml") ? trimmed : `${trimmed}.yaml`;
+      if (!/^[a-zA-Z0-9._-]+\.yaml$/.test(filename)) {
+        toast.error("Invalid name — use [a-zA-Z0-9._-]");
+        return;
+      }
     }
     const relPath = `${newFor}/${filename}`;
     const basename = filename.replace(/\.yaml$/, "");
-    const template = templateFor(newFor, basename);
+    const template = inDictionaryDir ? "" : templateFor(newFor, basename);
     const res = await fetch(`/api/data/file?path=${encodeURIComponent(relPath)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -363,7 +375,12 @@ export function FileBrowser() {
         </CardHeader>
         <CardContent className="flex-1 overflow-hidden p-0">
           {selected ? (
-            <YamlEditor value={content} onChange={setContent} height="100%" />
+            <YamlEditor
+              value={content}
+              onChange={setContent}
+              height="100%"
+              language={selected.endsWith(".yaml") ? "yaml" : "plaintext"}
+            />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-[color:var(--color-muted-foreground)]">
               <FileCode className="h-8 w-8 opacity-30" />

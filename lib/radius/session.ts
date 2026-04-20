@@ -52,26 +52,32 @@ export async function runSession(
   const outcome: SessionOutcome = { ok: false, authCode: "", packetsSent: 0, latencyMs: [] };
   const transition = (state: SessionState) => events.onStateChange?.(state);
 
+  // User-supplied attributes from the profile, applied to both Access- and
+  // Accounting-Request. Duplicate names (e.g. an attribute also emitted by
+  // baseClientAttributes) are simply sent twice — acceptable for RADIUS.
+  const extraAttrs: AttributeTuple[] = profile.session.attributes.map(
+    (a) => [a.name, a.value] as AttributeTuple,
+  );
+
   const base = baseClientAttributes({
-    serviceType: profile.session.serviceType,
-    framedProtocol: profile.session.framedProtocol,
     nasIp: profile.nas.ip,
     nasPortId: profile.nas.portId,
     nasPortType: profile.nas.portType,
   });
 
   const sessionId = `sess-${randomBytes(8).toString("hex")}`;
-  const framedIp = profile.session.framedIp ?? "10.0.0.1";
+  const accountingOff = profile.accounting.disabled;
 
   // Step framing — matches the "=== Step N/Total: Label ===" format used by radtest.sh.
-  // Total = Access-Request + Accounting-Start + (N interim updates) + Accounting-Stop.
-  // The interim count matches the loop below, which terminates when the deadline passes.
-  const interval = Math.max(1, profile.session.interimIntervalSeconds);
-  const estimatedInterims = Math.max(
-    0,
-    Math.floor(profile.session.durationSeconds / interval) - 1,
-  );
-  const totalSteps = 2 + estimatedInterims + 1;
+  // Total = Access-Request + Accounting-Start + (N interim updates) + Accounting-Stop,
+  // or just Access-Request when accounting is disabled.
+  const interval = accountingOff
+    ? 0
+    : Math.max(1, profile.accounting.interimIntervalSeconds);
+  const estimatedInterims = accountingOff
+    ? 0
+    : Math.max(0, Math.floor(profile.accounting.durationSeconds / interval) - 1);
+  const totalSteps = accountingOff ? 1 : 2 + estimatedInterims + 1;
   let stepNum = 0;
   const stepHeader = (label: string) =>
     events.onLog?.(`=== Step ${++stepNum}/${totalSteps}: ${label} ===`);
@@ -86,12 +92,14 @@ export async function runSession(
             ["CHAP-Password", chap.password] as AttributeTuple,
             ["CHAP-Challenge", chap.challenge] as AttributeTuple,
             ...base,
+            ...extraAttrs,
           ];
         })()
       : [
           ["User-Name", profile.user.username] as AttributeTuple,
           ["User-Password", profile.user.password] as AttributeTuple,
           ...base,
+          ...extraAttrs,
         ];
 
   transition("auth-sent");
@@ -126,13 +134,19 @@ export async function runSession(
     return outcome;
   }
 
+  if (accountingOff) {
+    events.onLog?.("accounting disabled (interimIntervalSeconds = -1) — skipping Acct Start/Interim/Stop");
+    transition("completed");
+    outcome.ok = !outcome.error;
+    return outcome;
+  }
+
   // --- Accounting-Start -----------------------------------------------------
   const acctBase: AttributeTuple[] = [
     ["User-Name", profile.user.username],
     ["Acct-Session-Id", sessionId],
-    ["Acct-Authentic", profile.session.acctAuthentic],
-    ["Framed-IP-Address", framedIp],
     ...base,
+    ...extraAttrs,
   ];
 
   transition("acct-start-sent");
@@ -160,26 +174,26 @@ export async function runSession(
 
   // --- Interim loop ---------------------------------------------------------
   transition("acct-interim");
-  const deadline = Date.now() + profile.session.durationSeconds * 1000;
+  const deadline = Date.now() + profile.accounting.durationSeconds * 1000;
   let inputBytes = 0;
   let outputBytes = 0;
   let interimCount = 0;
 
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
-    const tick = Math.min(profile.session.interimIntervalSeconds * 1000, remaining);
+    const tick = Math.min(profile.accounting.interimIntervalSeconds * 1000, remaining);
     await sleep(tick);
 
     if (events.shouldStop?.()) break;
     if (Date.now() >= deadline) break;
 
     inputBytes += randomInRange(
-      profile.traffic.inputBytesPerInterval[0],
-      profile.traffic.inputBytesPerInterval[1],
+      profile.accounting.traffic.inputBytesPerInterval[0],
+      profile.accounting.traffic.inputBytesPerInterval[1],
     );
     outputBytes += randomInRange(
-      profile.traffic.outputBytesPerInterval[0],
-      profile.traffic.outputBytesPerInterval[1],
+      profile.accounting.traffic.outputBytesPerInterval[0],
+      profile.accounting.traffic.outputBytesPerInterval[1],
     );
     interimCount += 1;
 
@@ -196,7 +210,7 @@ export async function runSession(
           ["Acct-Status-Type", "Interim-Update"],
           ["Acct-Input-Octets", inputBytes],
           ["Acct-Output-Octets", outputBytes],
-          ["Acct-Session-Time", Math.round((Date.now() - (deadline - profile.session.durationSeconds * 1000)) / 1000)],
+          ["Acct-Session-Time", Math.round((Date.now() - (deadline - profile.accounting.durationSeconds * 1000)) / 1000)],
         ],
         timeoutMs,
         retries,
@@ -225,7 +239,7 @@ export async function runSession(
         ["Acct-Status-Type", "Stop"],
         ["Acct-Input-Octets", inputBytes],
         ["Acct-Output-Octets", outputBytes],
-        ["Acct-Session-Time", profile.session.durationSeconds],
+        ["Acct-Session-Time", profile.accounting.durationSeconds],
         ["Acct-Terminate-Cause", "User-Request"],
       ],
       timeoutMs,

@@ -64,14 +64,18 @@ async function upsert(req: Request, { mustExist }: { mustExist: boolean }) {
     return NextResponse.json({ error: "missing_content" }, { status: 400 });
   }
 
-  // sanity-check YAML parseability; refuse saves that cannot be parsed
-  try {
-    YAML.parse(body.content);
-  } catch (err) {
-    return NextResponse.json(
-      { error: "invalid_yaml", message: (err as Error).message },
-      { status: 400 },
-    );
+  // sanity-check YAML parseability; refuse saves that cannot be parsed.
+  // Non-yaml browsable files (dictionary/dictionary.*) skip this check — they
+  // use FreeRADIUS dictionary syntax, not YAML.
+  if (rel.endsWith(".yaml")) {
+    try {
+      YAML.parse(body.content);
+    } catch (err) {
+      return NextResponse.json(
+        { error: "invalid_yaml", message: (err as Error).message },
+        { status: 400 },
+      );
+    }
   }
 
   try {

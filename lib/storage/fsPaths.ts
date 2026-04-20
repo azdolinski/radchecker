@@ -5,11 +5,13 @@ const DATA_DIR = path.resolve(process.cwd(), "data");
 
 /**
  * Canonical data subdirectories holding user-authored YAML configuration.
- *   data/profiles/   — four collection files: clients.yaml, servers.yaml,
- *                      coa_sender.yaml, coa_server.yaml
- *   data/tests/      — YAML test fixtures (one file per fixture)
+ *   data/profiles/    — four collection files: clients.yaml, servers.yaml,
+ *                       coa_sender.yaml, coa_server.yaml
+ *   data/tests/       — YAML test fixtures (one file per fixture)
+ *   data/dictionary/  — FreeRADIUS-format dictionaries (dictionary.local +
+ *                       any shell-dropped dictionary.<name> files)
  */
-export const DATA_SUBDIRS = ["profiles", "tests"] as const;
+export const DATA_SUBDIRS = ["profiles", "tests", "dictionary"] as const;
 export type DataSubdir = (typeof DATA_SUBDIRS)[number];
 
 /**
@@ -38,6 +40,8 @@ export class InvalidPathError extends Error {
  *
  * `baseDir` defaults to the project `data/` dir; tests pass a tmp dir.
  */
+const DICTIONARY_FILE_RE = /^dictionary\.[A-Za-z0-9_.-]+$/;
+
 export function safeDataPath(rel: string, baseDir: string = DATA_DIR): string {
   if (typeof rel !== "string" || rel.length === 0) {
     throw new InvalidPathError("empty path");
@@ -47,9 +51,6 @@ export function safeDataPath(rel: string, baseDir: string = DATA_DIR): string {
   }
   if (rel.startsWith("/") || rel.startsWith("\\")) {
     throw new InvalidPathError("absolute paths not allowed");
-  }
-  if (!rel.endsWith(".yaml")) {
-    throw new InvalidPathError("only .yaml files are allowed");
   }
 
   const parts = rel.split("/");
@@ -69,8 +70,13 @@ export function safeDataPath(rel: string, baseDir: string = DATA_DIR): string {
   }
 
   const filename = parts[parts.length - 1];
-  if (!/^[a-zA-Z0-9._-]+\.yaml$/.test(filename)) {
-    throw new InvalidPathError("invalid filename — use [a-zA-Z0-9._-] only");
+  const isYaml = /^[a-zA-Z0-9._-]+\.yaml$/.test(filename);
+  const isDictFile =
+    parts.length === 2 && parts[0] === "dictionary" && DICTIONARY_FILE_RE.test(filename);
+  if (!isYaml && !isDictFile) {
+    throw new InvalidPathError(
+      "only .yaml files or dictionary/dictionary.<name> files are allowed",
+    );
   }
 
   const abs = path.resolve(baseDir, rel);

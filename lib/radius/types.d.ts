@@ -37,4 +37,5 @@ declare module "radius" {
   export function encode(args: EncodeArgs): Buffer;
   export function encode_response(args: EncodeResponseArgs): Buffer;
   export function add_dictionary(file: string): void;
+  export function load_dictionaries(): void;
 }

@@ -162,18 +162,13 @@ export class RadiusTimeoutError extends Error {
   }
 }
 
-/** Default attributes shared by both auth and accounting for a client. */
+/** NAS identity attributes shared by both auth and accounting for a client. */
 export function baseClientAttributes(params: {
-  serviceType?: string;
-  framedProtocol?: string;
   nasIp: string;
   nasPortId?: string;
   nasPortType?: string;
 }): AttributeTuple[] {
-  const out: AttributeTuple[] = [];
-  if (params.serviceType) out.push(["Service-Type", params.serviceType]);
-  if (params.framedProtocol) out.push(["Framed-Protocol", params.framedProtocol]);
-  out.push(["NAS-IP-Address", params.nasIp]);
+  const out: AttributeTuple[] = [["NAS-IP-Address", params.nasIp]];
   if (params.nasPortType) out.push(["NAS-Port-Type", params.nasPortType]);
   if (params.nasPortId) out.push(["NAS-Port-Id", params.nasPortId]);
   return out;

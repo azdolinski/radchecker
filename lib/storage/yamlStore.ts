@@ -9,10 +9,12 @@ import {
   ServersFileSchema,
   CoASenderFileSchema,
   CoAServerFileSchema,
+  DictionaryConfigFileSchema,
   TestFixtureSchema,
   type ClientProfile,
   type CoAConfig,
   type CoAPacketProfile,
+  type DictionaryConfig,
   type ServerConfig,
   type TestFixture,
 } from "./schemas";
@@ -27,6 +29,9 @@ const CLIENTS_FILE = "profiles/clients.yaml";
 const SERVERS_FILE = "profiles/servers.yaml";
 const COA_SENDER_FILE = "profiles/coa_sender.yaml";
 const COA_SERVER_FILE = "profiles/coa_server.yaml";
+const DICTIONARY_CONFIG_FILE = "profiles/dictionary.yaml";
+const DICTIONARY_DIR = "dictionary";
+const LOCAL_DICT_ID = "local";
 const TESTS_DIR = "tests";
 
 function assertSafeName(name: string) {
@@ -398,4 +403,57 @@ export async function writeRawTestYaml(
   const file = testFileForName(name, getDataDir(opts.dataDir));
   await ensureDir(path.dirname(file));
   await fs.writeFile(file, yamlText, "utf8");
+}
+
+/* ---------- Dictionary config (data/profiles/dictionary.yaml) ---------- */
+
+/** Returns null if the file is absent — caller decides how to seed. */
+export async function readDictionaryConfig(
+  opts: StoreOptions = {},
+): Promise<DictionaryConfig | null> {
+  const abs = path.join(getDataDir(opts.dataDir), DICTIONARY_CONFIG_FILE);
+  const text = await readFileIfExists(abs);
+  if (text === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(text);
+  } catch (err) {
+    throw new YamlStoreError(`Failed to parse YAML at ${abs}`, err);
+  }
+  return parseWith(DictionaryConfigFileSchema, parsed ?? { dictionary: { enabled: [] } }, abs)
+    .dictionary;
+}
+
+export async function writeDictionaryConfig(
+  cfg: DictionaryConfig,
+  opts: StoreOptions = {},
+): Promise<void> {
+  const validated = DictionaryConfigFileSchema.parse({ dictionary: cfg });
+  const abs = path.join(getDataDir(opts.dataDir), DICTIONARY_CONFIG_FILE);
+  await ensureDir(path.dirname(abs));
+  await fs.writeFile(abs, YAML.stringify(validated, { indent: 2, lineWidth: 0 }), "utf8");
+}
+
+/* ---------- Dictionary files (data/dictionary/dictionary.<id>) ---------- */
+
+function userDictPath(id: string, dataDir: string): string {
+  if (!/^[A-Za-z0-9_.-]+$/.test(id) || id.length === 0 || id.length > 64) {
+    throw new YamlStoreError(`invalid dictionary id: ${id}`);
+  }
+  return path.join(dataDir, DICTIONARY_DIR, `dictionary.${id}`);
+}
+
+export async function readLocalDict(opts: StoreOptions = {}): Promise<string> {
+  const file = userDictPath(LOCAL_DICT_ID, getDataDir(opts.dataDir));
+  const text = await readFileIfExists(file);
+  return text ?? "";
+}
+
+export async function writeLocalDict(
+  content: string,
+  opts: StoreOptions = {},
+): Promise<void> {
+  const file = userDictPath(LOCAL_DICT_ID, getDataDir(opts.dataDir));
+  await ensureDir(path.dirname(file));
+  await fs.writeFile(file, content, "utf8");
 }

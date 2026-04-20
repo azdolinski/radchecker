@@ -44,6 +44,17 @@ export type CoAConfig = z.infer<typeof CoAConfigSchema>;
 /** Element of data/profiles/clients.yaml — one client emulator profile. */
 const RangeSchema = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]);
 
+/**
+ * Attribute pair — reused between CoA Sender packets and Client Emulator
+ * profiles. Defined here (above ClientProfileSchema) so it can be referenced
+ * in the session attributes list; the CoA Sender export at the bottom of this
+ * file aliases it verbatim.
+ */
+const ClientAttributeSchema = z.object({
+  name: z.string().min(1),
+  value: z.union([z.string(), z.number()]),
+});
+
 export const ClientProfileSchema = z.object({
   id: IdSchema,
   name: NameSchema,
@@ -58,21 +69,45 @@ export const ClientProfileSchema = z.object({
     portType: z.string().default("Ethernet"),
   }),
   session: z.object({
-    framedIp: z.string().optional(),
-    serviceType: z.string().default("Framed-User"),
-    framedProtocol: z.string().default("PPP"),
-    acctAuthentic: z.string().default("RADIUS"),
-    durationSeconds: z.number().int().positive().default(60),
-    interimIntervalSeconds: z.number().int().positive().default(10),
+    /**
+     * Extra attributes added to every Access-Request and Accounting-Request
+     * packet built from this profile. Free-form name/value pairs — names are
+     * surfaced by the dictionary picker but free text is accepted. Typical
+     * defaults: Framed-IP-Address, Service-Type, Framed-Protocol,
+     * Acct-Authentic (see makeDefaultClientProfile).
+     */
+    attributes: z.array(ClientAttributeSchema).default([]),
   }),
-  traffic: z
+  /**
+   * RADIUS Accounting settings. When `disabled` is true the runtime skips the
+   * entire Accounting flow (Start / Interim-Update / Stop) and only sends the
+   * Access-Request. `durationSeconds` and `interimIntervalSeconds` then have
+   * no effect — they are kept so toggling accounting back on restores the
+   * previous cadence without re-entering the values.
+   */
+  accounting: z
     .object({
-      inputBytesPerInterval: RangeSchema.default([100_000, 500_000]),
-      outputBytesPerInterval: RangeSchema.default([1_000_000, 5_000_000]),
+      disabled: z.boolean().default(false),
+      durationSeconds: z.number().int().positive().default(60),
+      interimIntervalSeconds: z.number().int().positive().default(10),
+      traffic: z
+        .object({
+          inputBytesPerInterval: RangeSchema.default([100_000, 500_000]),
+          outputBytesPerInterval: RangeSchema.default([1_000_000, 5_000_000]),
+        })
+        .default({
+          inputBytesPerInterval: [100_000, 500_000],
+          outputBytesPerInterval: [1_000_000, 5_000_000],
+        }),
     })
     .default({
-      inputBytesPerInterval: [100_000, 500_000],
-      outputBytesPerInterval: [1_000_000, 5_000_000],
+      disabled: false,
+      durationSeconds: 60,
+      interimIntervalSeconds: 10,
+      traffic: {
+        inputBytesPerInterval: [100_000, 500_000],
+        outputBytesPerInterval: [1_000_000, 5_000_000],
+      },
     }),
 });
 export type ClientProfile = z.infer<typeof ClientProfileSchema>;
@@ -244,3 +279,26 @@ export type CoAServerFile = z.infer<typeof CoAServerFileSchema>;
 
 /** Keys of the four top-level profile files under `data/profiles/`. */
 export type ProfileFileKind = "clients" | "servers" | "coa_sender" | "coa_server";
+
+/**
+ * data/dictionary.yaml — selection of built-in FreeRADIUS dictionaries that
+ * should contribute attributes to the UI picker. Only built-in IDs belong
+ * here; user files under data/dictionary/ are always auto-loaded regardless
+ * of this list.
+ */
+export const DictionaryIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9_.-]+$/, "Must be alphanumeric, dot, dash, or underscore");
+
+export const DictionaryConfigSchema = z.object({
+  enabled: z.array(DictionaryIdSchema).default([]),
+});
+export type DictionaryConfig = z.infer<typeof DictionaryConfigSchema>;
+
+/** data/profiles/dictionary.yaml — wrapped like the other collection files. */
+export const DictionaryConfigFileSchema = z.object({
+  dictionary: DictionaryConfigSchema.default({ enabled: [] }),
+});
+export type DictionaryConfigFile = z.infer<typeof DictionaryConfigFileSchema>;

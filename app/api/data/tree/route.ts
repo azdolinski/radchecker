@@ -13,6 +13,21 @@ export type TreeEntry =
 
 const RUNTIME_SET = new Set<string>(RUNTIME_SUBDIRS);
 
+const DICTIONARY_FILE_RE = /^dictionary\.[A-Za-z0-9_.-]+$/;
+
+/**
+ * Files visible in the browser tree:
+ *   - Anything ending in `.yaml` (profile / test / config YAML).
+ *   - `dictionary.<name>` files under `data/dictionary/` — FreeRADIUS-format,
+ *     plain text, no extension. Shown so the user can edit them alongside
+ *     their YAML config without leaving the UI.
+ */
+function isBrowsable(name: string, relDir: string): boolean {
+  if (name.endsWith(".yaml")) return true;
+  if (relDir === "dictionary" && DICTIONARY_FILE_RE.test(name)) return true;
+  return false;
+}
+
 async function walkDir(absDir: string, relDir: string): Promise<TreeEntry[]> {
   let entries;
   try {
@@ -30,7 +45,7 @@ async function walkDir(absDir: string, relDir: string): Promise<TreeEntry[]> {
     if (e.isDirectory()) {
       const children = await walkDir(abs, rel);
       result.push({ type: "dir", name: e.name, path: rel, children });
-    } else if (e.isFile() && e.name.endsWith(".yaml")) {
+    } else if (e.isFile() && isBrowsable(e.name, relDir)) {
       const stat = await fs.stat(abs);
       result.push({
         type: "file",

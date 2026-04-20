@@ -32,6 +32,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # `radius` is declared in serverExternalPackages and resolves its dictionary
 # files via __dirname at runtime, so the package must exist on disk.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/radius ./node_modules/radius
+# Bundled vendor VSA dictionaries are loaded at runtime by path (not via `import`),
+# so Next.js tracer doesn't include them in the standalone output — we COPY
+# them explicitly. See lib/radius/dictionarySources.ts.
+COPY --from=builder --chown=nextjs:nodejs /app/lib/radius/vendor-dictionaries ./lib/radius/vendor-dictionaries
 
 USER nextjs
 EXPOSE 4444

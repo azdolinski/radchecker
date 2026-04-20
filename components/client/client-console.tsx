@@ -389,7 +389,10 @@ export function ClientConsole() {
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-mono text-xs font-medium">{p.name}</div>
                           <div className="truncate text-[10px] text-[color:var(--color-muted-foreground)]">
-                            {p.user.username} · NAS {p.nas.ip} · {p.session.durationSeconds}s
+                            {p.user.username} · NAS {p.nas.ip} ·{" "}
+                            {p.accounting.disabled
+                              ? "auth-only"
+                              : `${p.accounting.durationSeconds}s`}
                           </div>
                         </div>
                       </label>

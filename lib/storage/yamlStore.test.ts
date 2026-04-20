@@ -183,28 +183,33 @@ describe("ServerConfig (collection file)", () => {
 describe("ClientProfile (collection file)", () => {
   const sample: ClientProfile = {
     id: "22222222-2222-4222-8222-222222222222",
-    name: "azdolinski",
-    user: { username: "azdolinski", password: "azdolinski", authType: "pap" },
+    name: "sample-user",
+    user: { username: "sample-user", password: "sample-user", authType: "pap" },
     nas: { ip: "172.20.5.14", portId: "eth0/0/1", portType: "Ethernet" },
     session: {
-      framedIp: "10.0.0.100",
-      serviceType: "Framed-User",
-      framedProtocol: "PPP",
-      acctAuthentic: "RADIUS",
+      attributes: [
+        { name: "Framed-IP-Address", value: "10.0.0.100" },
+        { name: "Service-Type", value: "Framed-User" },
+        { name: "Framed-Protocol", value: "PPP" },
+        { name: "Acct-Authentic", value: "RADIUS" },
+      ],
+    },
+    accounting: {
+      disabled: false,
       durationSeconds: 60,
       interimIntervalSeconds: 10,
-    },
-    traffic: {
-      inputBytesPerInterval: [524288, 1048576],
-      outputBytesPerInterval: [1048576, 2097152],
+      traffic: {
+        inputBytesPerInterval: [524288, 1048576],
+        outputBytesPerInterval: [1048576, 2097152],
+      },
     },
   };
 
   it("writes and reads roundtrip", async () => {
     await writeProfile(sample, { dataDir: tmpDir });
-    const loaded = await readProfile("azdolinski", { dataDir: tmpDir });
-    expect(loaded.user.username).toBe("azdolinski");
-    expect(loaded.traffic.inputBytesPerInterval).toEqual([524288, 1048576]);
+    const loaded = await readProfile("sample-user", { dataDir: tmpDir });
+    expect(loaded.user.username).toBe("sample-user");
+    expect(loaded.accounting.traffic.inputBytesPerInterval).toEqual([524288, 1048576]);
   });
 
   it("persists into a single collection file", async () => {
@@ -215,20 +220,33 @@ describe("ClientProfile (collection file)", () => {
 
   it("delete removes entry", async () => {
     await writeProfile(sample, { dataDir: tmpDir });
-    expect(await listProfiles({ dataDir: tmpDir })).toContain("azdolinski");
-    await deleteProfile("azdolinski", { dataDir: tmpDir });
-    expect(await listProfiles({ dataDir: tmpDir })).not.toContain("azdolinski");
+    expect(await listProfiles({ dataDir: tmpDir })).toContain("sample-user");
+    await deleteProfile("sample-user", { dataDir: tmpDir });
+    expect(await listProfiles({ dataDir: tmpDir })).not.toContain("sample-user");
   });
 
   it("delete on missing is idempotent", async () => {
     await expect(deleteProfile("ghost", { dataDir: tmpDir })).resolves.toBeUndefined();
   });
 
-  it("applies zod defaults for traffic", async () => {
-    const minimal = { ...sample, traffic: undefined } as unknown as ClientProfile;
+  it("applies zod defaults for accounting block", async () => {
+    const minimal = { ...sample, accounting: undefined } as unknown as ClientProfile;
     await writeProfile(minimal, { dataDir: tmpDir });
-    const loaded = await readProfile("azdolinski", { dataDir: tmpDir });
-    expect(loaded.traffic.inputBytesPerInterval.length).toBe(2);
+    const loaded = await readProfile("sample-user", { dataDir: tmpDir });
+    expect(loaded.accounting.disabled).toBe(false);
+    expect(loaded.accounting.durationSeconds).toBe(60);
+    expect(loaded.accounting.interimIntervalSeconds).toBe(10);
+    expect(loaded.accounting.traffic.inputBytesPerInterval.length).toBe(2);
+  });
+
+  it("round-trips accounting.disabled = true", async () => {
+    const off = {
+      ...sample,
+      accounting: { ...sample.accounting, disabled: true },
+    };
+    await writeProfile(off, { dataDir: tmpDir });
+    const loaded = await readProfile("sample-user", { dataDir: tmpDir });
+    expect(loaded.accounting.disabled).toBe(true);
   });
 
   it("readAllProfiles returns empty when file missing", async () => {

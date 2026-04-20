@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const job = createJob({
       kind: "client-session",
       name: `${profile.name}@${server.name}`,
-      config: { profile: profile.name, server: server.name, durationSeconds: profile.session.durationSeconds },
+      config: { profile: profile.name, server: server.name, durationSeconds: profile.accounting.durationSeconds },
       stop: async () => {
         stopRequested = true;
       },

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, Database } from "lucide-react";
+import { Archive, BookOpen, Database } from "lucide-react";
 import type { ComponentType } from "react";
 
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ type TabDef = {
 
 const tabs: TabDef[] = [
   { href: "/settings/data", label: "Data", icon: Database },
+  { href: "/settings/dictionary", label: "Dictionary", icon: BookOpen },
   { href: "/settings/backup", label: "Backup", icon: Archive },
 ];
 

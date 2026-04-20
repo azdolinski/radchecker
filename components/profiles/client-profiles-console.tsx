@@ -96,7 +96,9 @@ export function ClientProfilesConsole() {
               <span>NAS {p.nas.ip}</span>
               <span className="mx-1 opacity-40">·</span>
               <span>
-                {p.session.durationSeconds}s · interim {p.session.interimIntervalSeconds}s
+                {p.accounting.disabled
+                  ? "auth-only (accounting off)"
+                  : `${p.accounting.durationSeconds}s · interim ${p.accounting.interimIntervalSeconds}s`}
               </span>
             </>
           )}

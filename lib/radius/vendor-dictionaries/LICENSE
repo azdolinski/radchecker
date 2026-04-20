@@ -1,0 +1,15 @@
+The vendor dictionary files in this directory are copied verbatim from
+the FreeRADIUS Server project (https://github.com/FreeRADIUS/freeradius-server,
+v3.2.x branch, share/dictionary.*).
+
+They are distributed under the Creative Commons Attribution 4.0 license
+(CC-BY 4.0): https://creativecommons.org/licenses/by/4.0
+
+Attribution: Copyright (C) 2019 The FreeRADIUS Server project and contributors.
+
+Files:
+  - dictionary.mikrotik
+  - dictionary.cisco
+  - dictionary.huawei
+  - dictionary.ruckus
+  - dictionary.microsoft
