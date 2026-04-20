@@ -7,21 +7,32 @@ export const NameSchema = z
   .max(80)
   .regex(/^[a-zA-Z0-9._-]+$/, "Must be alphanumeric, dot, dash, or underscore");
 
-/** data/servers/<name>.yaml — RADIUS server target for client emulator & test runner. */
+/**
+ * Stable UUID identity for profile-class entities (Server, Client, CoA
+ * server-sim config, CoA packet). References between profiles use this id,
+ * not the name — so renames never break cross-references.
+ */
+export const IdSchema = z.uuid();
+
+/** Element of data/profiles/servers.yaml — one RADIUS server target. */
 export const ServerConfigSchema = z.object({
+  id: IdSchema,
   name: NameSchema,
   host: z.string().min(1),
   authPort: z.number().int().min(1).max(65535).default(1812),
   acctPort: z.number().int().min(1).max(65535).default(1813),
+  coaPort: z.number().int().min(1).max(65535).default(3799),
   secret: z.string().min(1),
   timeoutMs: z.number().int().min(100).max(60000).default(5000),
   retries: z.number().int().min(0).max(10).default(1),
+  isFavorite: z.boolean().default(false),
 });
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 
-/** data/coa/<name>.yaml — CoA server simulator config. */
+/** Element of data/profiles/coa_server.yaml — one CoA server simulator preset. */
 export const CoAPolicySchema = z.enum(["always-ack", "always-nak", "random"]);
 export const CoAConfigSchema = z.object({
+  id: IdSchema,
   name: NameSchema,
   bind: z.string().default("0.0.0.0"),
   port: z.number().int().min(1).max(65535).default(3799),
@@ -30,10 +41,11 @@ export const CoAConfigSchema = z.object({
 });
 export type CoAConfig = z.infer<typeof CoAConfigSchema>;
 
-/** data/profiles/<name>.yaml — client emulator profile. */
+/** Element of data/profiles/clients.yaml — one client emulator profile. */
 const RangeSchema = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]);
 
 export const ClientProfileSchema = z.object({
+  id: IdSchema,
   name: NameSchema,
   user: z.object({
     username: z.string().min(1),
@@ -140,12 +152,95 @@ export const TestFixtureSchema = z.object({
 });
 export type TestFixture = z.infer<typeof TestFixtureSchema>;
 
-/** Matches directory layout under `data/`. See lib/storage/fsPaths.ts. */
-export type EntityKind = "profiles/client" | "profiles/servers" | "coa" | "tests";
+/** Element of data/profiles/coa_sender.yaml — one CoA packet profile used by CoA Sender. */
+export const AttributePairSchema = z.object({
+  name: z.string().min(1),
+  value: z.union([z.string(), z.number()]),
+});
+export type AttributePair = z.infer<typeof AttributePairSchema>;
 
-export const SchemaByKind = {
-  "profiles/client": ClientProfileSchema,
-  "profiles/servers": ServerConfigSchema,
-  coa: CoAConfigSchema,
-  tests: TestFixtureSchema,
-} as const;
+export const CoAPacketTypeSchema = z.enum(["CoA-Request", "Disconnect-Request"]);
+export type CoAPacketType = z.infer<typeof CoAPacketTypeSchema>;
+
+/** Inside `target.server`: either a profile reference or a full inline spec. */
+export const ServerRefSchema = z.strictObject({ profile: IdSchema });
+export const ServerInlineSchema = z.strictObject({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  secret: z.string().min(1),
+  timeoutMs: z.number().int().min(100).max(60000).default(5000),
+  retries: z.number().int().min(0).max(10).default(1),
+});
+export const CoAServerTargetSchema = z.union([ServerRefSchema, ServerInlineSchema]);
+export type CoAServerTarget = z.infer<typeof CoAServerTargetSchema>;
+
+/** Outer `target` object — single `server` key for now, room to grow later. */
+export const CoATargetSchema = z.object({ server: CoAServerTargetSchema });
+export type CoATarget = z.infer<typeof CoATargetSchema>;
+
+export const CoAPacketProfileSchema = z.object({
+  id: IdSchema,
+  name: NameSchema,
+  type: CoAPacketTypeSchema,
+  target: CoATargetSchema,
+  attributes: z.array(AttributePairSchema).default([]),
+});
+export type CoAPacketProfile = z.infer<typeof CoAPacketProfileSchema>;
+
+/**
+ * Enforce unique `id` and `name` across the collection. Emitted as Zod issues
+ * so validation failure messages flow through parseWith() like any other.
+ */
+function checkUnique<T extends { id: string; name: string }>(
+  list: T[],
+  ctx: z.RefinementCtx,
+  key: string,
+) {
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  list.forEach((entry, index) => {
+    if (seenIds.has(entry.id)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [key, index, "id"],
+        message: `duplicate id in ${key}: ${entry.id}`,
+      });
+    }
+    if (seenNames.has(entry.name)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [key, index, "name"],
+        message: `duplicate name in ${key}: ${entry.name}`,
+      });
+    }
+    seenIds.add(entry.id);
+    seenNames.add(entry.name);
+  });
+}
+
+/** data/profiles/clients.yaml — collection of client emulator profiles. */
+export const ClientsFileSchema = z
+  .object({ clients: z.array(ClientProfileSchema).default([]) })
+  .superRefine((value, ctx) => checkUnique(value.clients, ctx, "clients"));
+export type ClientsFile = z.infer<typeof ClientsFileSchema>;
+
+/** data/profiles/servers.yaml — collection of RADIUS server targets. */
+export const ServersFileSchema = z
+  .object({ servers: z.array(ServerConfigSchema).default([]) })
+  .superRefine((value, ctx) => checkUnique(value.servers, ctx, "servers"));
+export type ServersFile = z.infer<typeof ServersFileSchema>;
+
+/** data/profiles/coa_sender.yaml — collection of CoA sender packet profiles. */
+export const CoASenderFileSchema = z
+  .object({ coa_sender: z.array(CoAPacketProfileSchema).default([]) })
+  .superRefine((value, ctx) => checkUnique(value.coa_sender, ctx, "coa_sender"));
+export type CoASenderFile = z.infer<typeof CoASenderFileSchema>;
+
+/** data/profiles/coa_server.yaml — collection of CoA server simulator presets. */
+export const CoAServerFileSchema = z
+  .object({ coa_server: z.array(CoAConfigSchema).default([]) })
+  .superRefine((value, ctx) => checkUnique(value.coa_server, ctx, "coa_server"));
+export type CoAServerFile = z.infer<typeof CoAServerFileSchema>;
+
+/** Keys of the four top-level profile files under `data/profiles/`. */
+export type ProfileFileKind = "clients" | "servers" | "coa_sender" | "coa_server";

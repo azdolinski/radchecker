@@ -36,11 +36,12 @@ Edit and execute test fixtures (format compatible with the reference Python `tmp
 - **RADIUS stack:** [`radius`](https://www.npmjs.com/package/radius) npm package + `node:dgram` for UDP I/O.
 - **Process model:** multi-job. An in-memory `Map<jobId, Job>` holds all active CoA servers, client sessions, perf tests, and YAML runs concurrently. Restart = everything gone (ephemeral by design).
 - **Log transport:** Server-Sent Events (`GET /api/jobs/[id]/logs`), ring buffer of the last 500 lines per job.
-- **Storage:** YAML-only, no database.
-  - `data/profiles/client/<name>.yaml` — client profiles (user, NAS, session, traffic)
-  - `data/profiles/servers/<name>.yaml` — RADIUS server configs (host, ports, secret)
-  - `data/coa/<name>.yaml` — CoA server configs
-  - `data/tests/<name>.yaml` — test fixtures
+- **Storage:** YAML-only, no database. Profile files are collections — all entries of a given type live in a single file:
+  - `data/profiles/clients.yaml` — `{ clients: [...] }` — client emulator profiles
+  - `data/profiles/servers.yaml` — `{ servers: [...] }` — RADIUS server targets
+  - `data/profiles/coa_sender.yaml` — `{ coa_sender: [...] }` — CoA sender packet profiles
+  - `data/profiles/coa_server.yaml` — `{ coa_server: [...] }` — CoA server simulator presets
+  - `data/tests/<name>.yaml` — test fixtures (one file per fixture)
 - **UI:** Tailwind + shadcn/ui + Radix primitives, `next-themes` for dark/light toggle, AppShell layout with sidebar navigation.
 
 ---

@@ -1,22 +1,43 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import YAML from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  deleteCoA,
+  deleteCoAPacket,
   deleteProfile,
+  deleteServer,
+  listCoAConfigs,
+  listCoAPackets,
   listProfiles,
   listServers,
   listTests,
+  readAllCoAConfigs,
+  readAllCoAPackets,
+  readAllProfiles,
+  readAllServers,
+  readCoA,
+  readCoAPacket,
   readProfile,
   readServer,
+  readServerById,
   readTest,
+  writeCoA,
+  writeCoAPacket,
   writeProfile,
   writeServer,
   writeTest,
   YamlStoreError,
 } from "./yamlStore";
-import type { ClientProfile, ServerConfig, TestFixture } from "./schemas";
+import type {
+  ClientProfile,
+  CoAConfig,
+  CoAPacketProfile,
+  ServerConfig,
+  TestFixture,
+} from "./schemas";
 
 let tmpDir: string;
 
@@ -28,47 +49,140 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-describe("ServerConfig", () => {
+describe("ServerConfig (collection file)", () => {
   const sample: ServerConfig = {
+    id: "11111111-1111-4111-8111-111111111111",
     name: "default",
     host: "127.0.0.1",
     authPort: 1812,
     acctPort: 1813,
+    coaPort: 3799,
     secret: "testing123",
     timeoutMs: 5000,
     retries: 1,
+    isFavorite: false,
   };
 
   it("writes then reads identically", async () => {
     await writeServer(sample, { dataDir: tmpDir });
-    const loaded = await readServer("default", { dataDir: tmpDir });
-    expect(loaded).toEqual(sample);
+    expect(await readServer("default", { dataDir: tmpDir })).toEqual(sample);
   });
 
-  it("lists after write", async () => {
+  it("two writes produce one file with two entries", async () => {
     await writeServer(sample, { dataDir: tmpDir });
-    await writeServer({ ...sample, name: "prod" }, { dataDir: tmpDir });
+    await writeServer({ ...sample, id: "22222222-2222-4222-8222-222222222222", name: "prod" }, { dataDir: tmpDir });
+    const all = await readAllServers({ dataDir: tmpDir });
+    expect(all).toHaveLength(2);
     expect(await listServers({ dataDir: tmpDir })).toEqual(["default", "prod"]);
+    const fileExists = await fs
+      .stat(path.join(tmpDir, "profiles", "servers.yaml"))
+      .then(() => true)
+      .catch(() => false);
+    expect(fileExists).toBe(true);
   });
 
-  it("returns empty list when dir missing", async () => {
+  it("upserts in place when name matches", async () => {
+    await writeServer(sample, { dataDir: tmpDir });
+    await writeServer({ ...sample, host: "10.0.0.1" }, { dataDir: tmpDir });
+    const all = await readAllServers({ dataDir: tmpDir });
+    expect(all).toHaveLength(1);
+    expect(all[0].host).toBe("10.0.0.1");
+  });
+
+  it("deleteServer removes one entry, leaves others", async () => {
+    await writeServer(sample, { dataDir: tmpDir });
+    await writeServer({ ...sample, id: "22222222-2222-4222-8222-222222222222", name: "prod" }, { dataDir: tmpDir });
+    await deleteServer("default", { dataDir: tmpDir });
+    expect(await listServers({ dataDir: tmpDir })).toEqual(["prod"]);
+  });
+
+  it("deleteServer is idempotent for missing name", async () => {
+    await expect(deleteServer("ghost", { dataDir: tmpDir })).resolves.toBeUndefined();
+  });
+
+  it("returns empty list when file missing", async () => {
+    expect(await readAllServers({ dataDir: path.join(tmpDir, "nope") })).toEqual([]);
     expect(await listServers({ dataDir: path.join(tmpDir, "nope") })).toEqual([]);
   });
 
-  it("rejects bad name (path traversal)", async () => {
-    await expect(writeServer({ ...sample, name: "../etc/passwd" }, { dataDir: tmpDir })).rejects.toThrow();
+  it("rejects write with bad name (path traversal)", async () => {
+    await expect(
+      writeServer({ ...sample, name: "../etc/passwd" }, { dataDir: tmpDir }),
+    ).rejects.toThrow();
   });
 
-  it("rejects missing required fields at read", async () => {
-    const bad = path.join(tmpDir, "profiles", "servers", "bad.yaml");
-    await fs.mkdir(path.dirname(bad), { recursive: true });
-    await fs.writeFile(bad, "host: 1.2.3.4\n", "utf8");
-    await expect(readServer("bad", { dataDir: tmpDir })).rejects.toBeInstanceOf(YamlStoreError);
+  it("readServer throws YamlStoreError when name missing", async () => {
+    await writeServer(sample, { dataDir: tmpDir });
+    await expect(readServer("ghost", { dataDir: tmpDir })).rejects.toBeInstanceOf(YamlStoreError);
+  });
+
+  it("rejects collection with duplicate id", async () => {
+    const file = path.join(tmpDir, "profiles", "servers.yaml");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(
+      file,
+      YAML.stringify({
+        servers: [sample, { ...sample, name: "other" }],
+      }),
+      "utf8",
+    );
+    await expect(readAllServers({ dataDir: tmpDir })).rejects.toBeInstanceOf(YamlStoreError);
+  });
+
+  it("readServerById locates by UUID", async () => {
+    await writeServer(sample, { dataDir: tmpDir });
+    const found = await readServerById(sample.id, { dataDir: tmpDir });
+    expect(found?.name).toBe("default");
+    expect(await readServerById("nope", { dataDir: tmpDir })).toBeNull();
+  });
+
+  it("writing a favorite clears any previous favorite", async () => {
+    const a = { ...sample, isFavorite: true };
+    const b = {
+      ...sample,
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "prod",
+      isFavorite: true,
+    };
+    await writeServer(a, { dataDir: tmpDir });
+    await writeServer(b, { dataDir: tmpDir });
+    const all = await readAllServers({ dataDir: tmpDir });
+    const favorites = all.filter((s) => s.isFavorite);
+    expect(favorites).toHaveLength(1);
+    expect(favorites[0].name).toBe("prod");
+  });
+
+  it("defaults isFavorite to false when absent from on-disk YAML", async () => {
+    const file = path.join(tmpDir, "profiles", "servers.yaml");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    // Legacy shape: no isFavorite key.
+    const { isFavorite: _omit, ...legacy } = sample;
+    void _omit;
+    await fs.writeFile(file, YAML.stringify({ servers: [legacy] }), "utf8");
+    const all = await readAllServers({ dataDir: tmpDir });
+    expect(all).toHaveLength(1);
+    expect(all[0].isFavorite).toBe(false);
+  });
+
+  it("clearing a favorite does not promote any other server", async () => {
+    const a = { ...sample, isFavorite: true };
+    const b = {
+      ...sample,
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "prod",
+      isFavorite: false,
+    };
+    await writeServer(a, { dataDir: tmpDir });
+    await writeServer(b, { dataDir: tmpDir });
+    await writeServer({ ...a, isFavorite: false }, { dataDir: tmpDir });
+    const all = await readAllServers({ dataDir: tmpDir });
+    expect(all.every((s) => !s.isFavorite)).toBe(true);
   });
 });
 
-describe("ClientProfile", () => {
+describe("ClientProfile (collection file)", () => {
   const sample: ClientProfile = {
+    id: "22222222-2222-4222-8222-222222222222",
     name: "azdolinski",
     user: { username: "azdolinski", password: "azdolinski", authType: "pap" },
     nas: { ip: "172.20.5.14", portId: "eth0/0/1", portType: "Ethernet" },
@@ -93,7 +207,13 @@ describe("ClientProfile", () => {
     expect(loaded.traffic.inputBytesPerInterval).toEqual([524288, 1048576]);
   });
 
-  it("delete removes file", async () => {
+  it("persists into a single collection file", async () => {
+    await writeProfile(sample, { dataDir: tmpDir });
+    const text = await fs.readFile(path.join(tmpDir, "profiles", "clients.yaml"), "utf8");
+    expect(text).toMatch(/^clients:/m);
+  });
+
+  it("delete removes entry", async () => {
     await writeProfile(sample, { dataDir: tmpDir });
     expect(await listProfiles({ dataDir: tmpDir })).toContain("azdolinski");
     await deleteProfile("azdolinski", { dataDir: tmpDir });
@@ -109,6 +229,78 @@ describe("ClientProfile", () => {
     await writeProfile(minimal, { dataDir: tmpDir });
     const loaded = await readProfile("azdolinski", { dataDir: tmpDir });
     expect(loaded.traffic.inputBytesPerInterval.length).toBe(2);
+  });
+
+  it("readAllProfiles returns empty when file missing", async () => {
+    expect(await readAllProfiles({ dataDir: tmpDir })).toEqual([]);
+  });
+});
+
+describe("CoAConfig (collection file)", () => {
+  const sample: CoAConfig = {
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "default",
+    bind: "0.0.0.0",
+    port: 3799,
+    secret: "testing123",
+    policy: "always-ack",
+  };
+
+  it("write/read roundtrip via coa_server.yaml", async () => {
+    await writeCoA(sample, { dataDir: tmpDir });
+    expect(await readCoA("default", { dataDir: tmpDir })).toEqual(sample);
+    const text = await fs.readFile(
+      path.join(tmpDir, "profiles", "coa_server.yaml"),
+      "utf8",
+    );
+    expect(text).toMatch(/^coa_server:/m);
+  });
+
+  it("lists CoA configs", async () => {
+    await writeCoA(sample, { dataDir: tmpDir });
+    await writeCoA(
+      { ...sample, id: "44444444-4444-4444-8444-444444444444", name: "alt" },
+      { dataDir: tmpDir },
+    );
+    expect(await listCoAConfigs({ dataDir: tmpDir })).toEqual(["alt", "default"]);
+  });
+
+  it("deleteCoA removes one entry", async () => {
+    await writeCoA(sample, { dataDir: tmpDir });
+    await deleteCoA("default", { dataDir: tmpDir });
+    expect(await readAllCoAConfigs({ dataDir: tmpDir })).toEqual([]);
+  });
+});
+
+describe("CoAPacketProfile (collection file)", () => {
+  const sample: CoAPacketProfile = {
+    id: "55555555-5555-4555-8555-555555555555",
+    name: "kick",
+    type: "Disconnect-Request",
+    target: { server: { host: "127.0.0.1", port: 3799, secret: "x", timeoutMs: 5000, retries: 1 } },
+    attributes: [{ name: "User-Name", value: "alice" }],
+  };
+
+  it("write/read roundtrip via coa_sender.yaml", async () => {
+    await writeCoAPacket(sample, { dataDir: tmpDir });
+    const loaded = await readCoAPacket("kick", { dataDir: tmpDir });
+    expect(loaded.attributes[0]).toEqual({ name: "User-Name", value: "alice" });
+    const text = await fs.readFile(
+      path.join(tmpDir, "profiles", "coa_sender.yaml"),
+      "utf8",
+    );
+    expect(text).toMatch(/^coa_sender:/m);
+  });
+
+  it("lists CoA packets", async () => {
+    await writeCoAPacket(sample, { dataDir: tmpDir });
+    expect(await listCoAPackets({ dataDir: tmpDir })).toEqual(["kick"]);
+  });
+
+  it("deleteCoAPacket removes one entry", async () => {
+    await writeCoAPacket(sample, { dataDir: tmpDir });
+    await deleteCoAPacket("kick", { dataDir: tmpDir });
+    expect(await readAllCoAPackets({ dataDir: tmpDir })).toEqual([]);
   });
 });
 

@@ -1,4 +1,4 @@
-export type JobKind = "coa-server" | "client-session" | "test-run" | "perf-test";
+export type JobKind = "coa-server" | "coa-send" | "client-session" | "test-run" | "perf-test";
 
 export type JobStatus = "starting" | "running" | "stopping" | "completed" | "failed";
 

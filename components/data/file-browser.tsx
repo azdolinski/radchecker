@@ -20,26 +20,17 @@ import { Input } from "@/components/ui/input";
 import { YamlEditor } from "@/components/tests/yaml-editor";
 import { cn } from "@/lib/utils";
 
-type Subdir = "profiles/client" | "profiles/servers" | "coa" | "tests";
-
-type FileEntry = { name: string; path: string; size: number; modified: number };
-type TreeNode = { subdir: Subdir; files: FileEntry[] };
-
-const SUBDIR_LABEL: Record<Subdir, string> = {
-  "profiles/client": "Client profiles",
-  "profiles/servers": "Server configs",
-  coa: "CoA configs",
-  tests: "Tests",
+type DirEntry = { type: "dir"; name: string; path: string; children: TreeEntry[] };
+type FileEntry = {
+  type: "file";
+  name: string;
+  path: string;
+  size: number;
+  modified: number;
 };
+type TreeEntry = DirEntry | FileEntry;
 
-const SUBDIR_HINT: Record<Subdir, string> = {
-  "profiles/client": "User + NAS + session params for the emulator",
-  "profiles/servers": "RADIUS targets: host, ports, shared secret",
-  coa: "CoA server simulator configurations",
-  tests: "YAML test fixtures (compatible with tmp/tests/data/)",
-};
-
-const DEFAULT_TEMPLATE: Record<Subdir, string> = {
+const DEFAULT_TEMPLATES: Record<string, string> = {
   "profiles/servers": `name: REPLACE_ME
 host: 127.0.0.1
 authPort: 1812
@@ -91,6 +82,11 @@ radius:
 `,
 };
 
+function templateFor(dirPath: string, basename: string): string {
+  const tpl = DEFAULT_TEMPLATES[dirPath] ?? "";
+  return tpl.replace("REPLACE_ME", basename);
+}
+
 function fmtBytes(n: number) {
   if (n < 1024) return `${n}B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
@@ -108,28 +104,73 @@ function fmtModified(ms: number) {
   return new Date(ms).toLocaleDateString();
 }
 
+function countFiles(node: TreeEntry): number {
+  if (node.type === "file") return 1;
+  return node.children.reduce((sum, c) => sum + countFiles(c), 0);
+}
+
+function flattenFiles(nodes: TreeEntry[]): FileEntry[] {
+  const out: FileEntry[] = [];
+  for (const n of nodes) {
+    if (n.type === "file") out.push(n);
+    else out.push(...flattenFiles(n.children));
+  }
+  return out;
+}
+
+function collectDirPaths(nodes: TreeEntry[], out: string[] = []): string[] {
+  for (const n of nodes) {
+    if (n.type === "dir") {
+      out.push(n.path);
+      collectDirPaths(n.children, out);
+    }
+  }
+  return out;
+}
+
+function pruneTree(nodes: TreeEntry[], q: string): TreeEntry[] {
+  const result: TreeEntry[] = [];
+  for (const n of nodes) {
+    if (n.type === "file") {
+      if (n.path.toLowerCase().includes(q)) result.push(n);
+      continue;
+    }
+    if (n.path.toLowerCase().includes(q)) {
+      result.push(n);
+      continue;
+    }
+    const children = pruneTree(n.children, q);
+    if (children.length > 0) {
+      result.push({ ...n, children });
+    }
+  }
+  return result;
+}
+
 export function FileBrowser() {
-  const [tree, setTree] = useState<TreeNode[]>([]);
+  const [tree, setTree] = useState<TreeEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState<Record<Subdir, boolean>>({
-    "profiles/client": true,
-    "profiles/servers": true,
-    coa: true,
-    tests: true,
-  });
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState<string>("");
   const [saved, setSaved] = useState<string>("");
   const [saving, setSaving] = useState(false);
-  const [newFor, setNewFor] = useState<Subdir | null>(null);
+  const [newFor, setNewFor] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
 
   const loadTree = useCallback(async () => {
     const res = await fetch("/api/data/tree");
     if (!res.ok) return;
-    const data = (await res.json()) as { tree: TreeNode[] };
+    const data = (await res.json()) as { tree: TreeEntry[] };
     setTree(data.tree);
+    setOpen((prev) => {
+      const next = { ...prev };
+      for (const dirPath of collectDirPaths(data.tree)) {
+        if (next[dirPath] === undefined) next[dirPath] = true;
+      }
+      return next;
+    });
     setLoading(false);
   }, []);
 
@@ -150,14 +191,9 @@ export function FileBrowser() {
   }, []);
 
   const filtered = useMemo(() => {
-    if (!filter.trim()) return tree;
-    const q = filter.toLowerCase();
-    return tree.map((node) => ({
-      ...node,
-      files: node.files.filter(
-        (f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q),
-      ),
-    }));
+    const q = filter.trim().toLowerCase();
+    if (!q) return tree;
+    return pruneTree(tree, q);
   }, [tree, filter]);
 
   const onSave = async () => {
@@ -207,10 +243,8 @@ export function FileBrowser() {
       return;
     }
     const relPath = `${newFor}/${filename}`;
-    const template = DEFAULT_TEMPLATE[newFor].replace(
-      "REPLACE_ME",
-      filename.replace(/\.yaml$/, ""),
-    );
+    const basename = filename.replace(/\.yaml$/, "");
+    const template = templateFor(newFor, basename);
     const res = await fetch(`/api/data/file?path=${encodeURIComponent(relPath)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -229,6 +263,11 @@ export function FileBrowser() {
   };
 
   const dirty = content !== saved;
+
+  const selectedMeta = useMemo(() => {
+    if (!selected) return null;
+    return flattenFiles(tree).find((x) => x.path === selected) ?? null;
+  }, [tree, selected]);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)] gap-4">
@@ -261,98 +300,32 @@ export function FileBrowser() {
             <div className="p-3 text-xs text-[color:var(--color-muted-foreground)]">
               Loading…
             </div>
+          ) : filtered.length === 0 ? (
+            <div className="p-3 text-xs italic text-[color:var(--color-muted-foreground)]">
+              {filter.trim() ? "No matches." : "empty"}
+            </div>
           ) : (
-            filtered.map((node) => (
-              <div key={node.subdir} className="mb-1">
-                <button
-                  onClick={() =>
-                    setOpen((prev) => ({ ...prev, [node.subdir]: !prev[node.subdir] }))
-                  }
-                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium hover:bg-[color:var(--color-muted)]"
-                >
-                  <ChevronRight
-                    className={cn(
-                      "h-3 w-3 transition-transform",
-                      open[node.subdir] && "rotate-90",
-                    )}
-                  />
-                  {open[node.subdir] ? (
-                    <FolderOpen className="h-3.5 w-3.5 text-[color:var(--color-primary)]" />
-                  ) : (
-                    <Folder className="h-3.5 w-3.5 text-[color:var(--color-muted-foreground)]" />
-                  )}
-                  <span className="flex-1 text-left">{SUBDIR_LABEL[node.subdir]}</span>
-                  <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
-                    {node.files.length}
-                  </span>
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setNewFor(node.subdir);
-                      setNewName("");
-                    }}
-                    className="rounded p-0.5 hover:bg-[color:var(--color-background)]"
-                    title="New file"
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <FilePlus className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-
-                {open[node.subdir] && (
-                  <>
-                    {newFor === node.subdir && (
-                      <div className="mx-2 mb-1 flex items-center gap-1">
-                        <Input
-                          className="h-7 text-xs"
-                          placeholder="name.yaml"
-                          value={newName}
-                          onChange={(e) => setNewName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") void onCreate();
-                            if (e.key === "Escape") {
-                              setNewFor(null);
-                              setNewName("");
-                            }
-                          }}
-                          autoFocus
-                        />
-                        <Button size="sm" onClick={() => void onCreate()}>
-                          Add
-                        </Button>
-                      </div>
-                    )}
-                    <div className="ml-3 border-l border-[color:var(--color-border)]/50 pl-1">
-                      {node.files.map((f) => {
-                        const active = selected === f.path;
-                        return (
-                          <button
-                            key={f.path}
-                            onClick={() => void loadFile(f.path)}
-                            className={cn(
-                              "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors",
-                              active
-                                ? "bg-[color:var(--color-muted)] text-[color:var(--color-foreground)]"
-                                : "text-[color:var(--color-muted-foreground)] hover:bg-[color:var(--color-muted)]/50",
-                            )}
-                          >
-                            <FileCode className="h-3.5 w-3.5 shrink-0" />
-                            <span className="flex-1 truncate font-mono">{f.name}</span>
-                            <span className="text-[9px] opacity-60">{fmtBytes(f.size)}</span>
-                          </button>
-                        );
-                      })}
-                      {node.files.length === 0 && newFor !== node.subdir && (
-                        <div className="px-2 py-1 text-[10px] italic text-[color:var(--color-muted-foreground)]">
-                          empty — {SUBDIR_HINT[node.subdir]}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            ))
+            <TreeView
+              nodes={filtered}
+              depth={0}
+              open={open}
+              onToggle={(p) => setOpen((prev) => ({ ...prev, [p]: !(prev[p] ?? true) }))}
+              selected={selected}
+              onSelect={(p) => void loadFile(p)}
+              newFor={newFor}
+              newName={newName}
+              onStartNew={(p) => {
+                setNewFor(p);
+                setNewName("");
+                setOpen((prev) => ({ ...prev, [p]: true }));
+              }}
+              onCancelNew={() => {
+                setNewFor(null);
+                setNewName("");
+              }}
+              onChangeNewName={setNewName}
+              onSubmitNew={() => void onCreate()}
+            />
           )}
         </CardContent>
       </Card>
@@ -396,22 +369,157 @@ export function FileBrowser() {
               <FileCode className="h-8 w-8 opacity-30" />
               <div className="max-w-xs">
                 Pick a file on the left or create a new one (
-                <FilePlus className="inline h-3 w-3" />). Changes are written directly to disk under{" "}
+                <FilePlus className="inline h-3 w-3" />
+                ). Changes are written directly to disk under{" "}
                 <code className="font-mono">data/</code>.
               </div>
             </div>
           )}
         </CardContent>
-        {selected && (
+        {selectedMeta && (
           <div className="border-t border-[color:var(--color-border)] px-4 py-1.5 text-[10px] text-[color:var(--color-muted-foreground)]">
-            {(() => {
-              const f = tree.flatMap((n) => n.files).find((x) => x.path === selected);
-              if (!f) return null;
-              return `${fmtBytes(f.size)} · modified ${fmtModified(f.modified)}`;
-            })()}
+            {fmtBytes(selectedMeta.size)} · modified {fmtModified(selectedMeta.modified)}
           </div>
         )}
       </Card>
     </div>
+  );
+}
+
+type TreeViewProps = {
+  nodes: TreeEntry[];
+  depth: number;
+  open: Record<string, boolean>;
+  onToggle: (path: string) => void;
+  selected: string | null;
+  onSelect: (path: string) => void;
+  newFor: string | null;
+  newName: string;
+  onStartNew: (dirPath: string) => void;
+  onCancelNew: () => void;
+  onChangeNewName: (name: string) => void;
+  onSubmitNew: () => void;
+};
+
+function TreeView(props: TreeViewProps) {
+  const {
+    nodes,
+    depth,
+    open,
+    onToggle,
+    selected,
+    onSelect,
+    newFor,
+    newName,
+    onStartNew,
+    onCancelNew,
+    onChangeNewName,
+    onSubmitNew,
+  } = props;
+
+  return (
+    <>
+      {nodes.map((node) => {
+        if (node.type === "dir") {
+          const isOpen = open[node.path] ?? true;
+          return (
+            <div key={node.path}>
+              <div
+                onClick={() => onToggle(node.path)}
+                className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium hover:bg-[color:var(--color-muted)]"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onToggle(node.path);
+                  }
+                }}
+              >
+                <ChevronRight
+                  className={cn("h-3 w-3 transition-transform", isOpen && "rotate-90")}
+                />
+                {isOpen ? (
+                  <FolderOpen className="h-3.5 w-3.5 text-[color:var(--color-primary)]" />
+                ) : (
+                  <Folder className="h-3.5 w-3.5 text-[color:var(--color-muted-foreground)]" />
+                )}
+                <span className="flex-1 truncate text-left">{node.name}/</span>
+                <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+                  {countFiles(node)}
+                </span>
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartNew(node.path);
+                  }}
+                  className="rounded p-0.5 hover:bg-[color:var(--color-background)]"
+                  title={`New file in ${node.path}/`}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onStartNew(node.path);
+                    }
+                  }}
+                >
+                  <FilePlus className="h-3.5 w-3.5" />
+                </span>
+              </div>
+
+              {isOpen && (
+                <div className="ml-3 border-l border-[color:var(--color-border)]/50 pl-1">
+                  {newFor === node.path && (
+                    <div className="mx-2 mb-1 flex items-center gap-1">
+                      <Input
+                        className="h-7 text-xs"
+                        placeholder="name.yaml"
+                        value={newName}
+                        onChange={(e) => onChangeNewName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") onSubmitNew();
+                          if (e.key === "Escape") onCancelNew();
+                        }}
+                        autoFocus
+                      />
+                      <Button size="sm" onClick={onSubmitNew}>
+                        Add
+                      </Button>
+                    </div>
+                  )}
+                  {node.children.length === 0 && newFor !== node.path ? (
+                    <div className="px-2 py-1 text-[10px] italic text-[color:var(--color-muted-foreground)]">
+                      empty
+                    </div>
+                  ) : (
+                    <TreeView {...props} nodes={node.children} depth={depth + 1} />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        const active = selected === node.path;
+        return (
+          <button
+            key={node.path}
+            onClick={() => onSelect(node.path)}
+            className={cn(
+              "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors",
+              active
+                ? "bg-[color:var(--color-muted)] text-[color:var(--color-foreground)]"
+                : "text-[color:var(--color-muted-foreground)] hover:bg-[color:var(--color-muted)]/50",
+            )}
+          >
+            <FileCode className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1 truncate font-mono">{node.name}</span>
+            <span className="text-[9px] opacity-60">{fmtBytes(node.size)}</span>
+          </button>
+        );
+      })}
+    </>
   );
 }

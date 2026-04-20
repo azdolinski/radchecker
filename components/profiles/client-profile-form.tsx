@@ -2,6 +2,7 @@
 
 import { Field, SelectField, Section } from "@/components/ui/field";
 import { ClientProfileSchema, type ClientProfile } from "@/lib/storage/schemas";
+import { randomId } from "@/lib/utils";
 
 export interface ClientProfileFormProps {
   value: ClientProfile;
@@ -10,23 +11,26 @@ export interface ClientProfileFormProps {
   mode: "new" | "edit";
 }
 
-export const DEFAULT_CLIENT_PROFILE: ClientProfile = {
-  name: "",
-  user: { username: "", password: "", authType: "pap" },
-  nas: { ip: "10.0.0.1", portId: "eth0", portType: "Ethernet" },
-  session: {
-    framedIp: "10.0.0.100",
-    serviceType: "Framed-User",
-    framedProtocol: "PPP",
-    acctAuthentic: "RADIUS",
-    durationSeconds: 60,
-    interimIntervalSeconds: 10,
-  },
-  traffic: {
-    inputBytesPerInterval: [100_000, 500_000],
-    outputBytesPerInterval: [1_000_000, 5_000_000],
-  },
-};
+export function makeDefaultClientProfile(): ClientProfile {
+  return {
+    id: randomId(),
+    name: "",
+    user: { username: "", password: "", authType: "pap" },
+    nas: { ip: "10.0.0.1", portId: "eth0", portType: "Ethernet" },
+    session: {
+      framedIp: "10.0.0.100",
+      serviceType: "Framed-User",
+      framedProtocol: "PPP",
+      acctAuthentic: "RADIUS",
+      durationSeconds: 60,
+      interimIntervalSeconds: 10,
+    },
+    traffic: {
+      inputBytesPerInterval: [100_000, 500_000],
+      outputBytesPerInterval: [1_000_000, 5_000_000],
+    },
+  };
+}
 
 export function validateClientProfile(v: ClientProfile): Record<string, string> {
   const r = ClientProfileSchema.safeParse(v);

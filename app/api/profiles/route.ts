@@ -1,23 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { listProfiles, readProfile, writeProfile } from "@/lib/storage/yamlStore";
+import { readAllProfiles, writeProfile } from "@/lib/storage/yamlStore";
 import { ClientProfileSchema } from "@/lib/storage/schemas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const names = await listProfiles();
-  const items = await Promise.all(
-    names.map(async (name) => {
-      try {
-        return await readProfile(name);
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return NextResponse.json({ profiles: items.filter(Boolean) });
+  const profiles = await readAllProfiles();
+  profiles.sort((a, b) => a.name.localeCompare(b.name));
+  return NextResponse.json({ profiles });
 }
 
 export async function POST(req: Request) {
@@ -28,7 +21,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const parsed = ClientProfileSchema.safeParse(body);
+  const input = ensureId(body);
+  const parsed = ClientProfileSchema.safeParse(input);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "invalid_profile", issues: parsed.error.issues },
@@ -37,4 +31,14 @@ export async function POST(req: Request) {
   }
   await writeProfile(parsed.data);
   return NextResponse.json({ profile: parsed.data }, { status: 201 });
+}
+
+function ensureId(body: unknown): unknown {
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const obj = body as Record<string, unknown>;
+    if (typeof obj.id !== "string" || obj.id.length === 0) {
+      return { ...obj, id: randomUUID() };
+    }
+  }
+  return body;
 }

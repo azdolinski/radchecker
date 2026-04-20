@@ -30,7 +30,26 @@ export async function PUT(req: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const parsed = ServerConfigSchema.safeParse({ ...(body as object), name: parsedName.data });
+
+  let stored: Awaited<ReturnType<typeof readServer>>;
+  try {
+    stored = await readServer(parsedName.data);
+  } catch {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  const bodyObj = (body as { id?: unknown } | null) ?? {};
+  if (typeof bodyObj.id === "string" && bodyObj.id.length > 0 && bodyObj.id !== stored.id) {
+    return NextResponse.json(
+      { error: "id_mismatch", message: "id is immutable once assigned" },
+      { status: 400 },
+    );
+  }
+  const parsed = ServerConfigSchema.safeParse({
+    ...(body as object),
+    id: stored.id,
+    name: parsedName.data,
+  });
   if (!parsed.success) {
     return NextResponse.json(
       { error: "invalid_server", issues: parsed.error.issues },

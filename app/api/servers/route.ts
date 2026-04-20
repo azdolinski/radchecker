@@ -1,23 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { listServers, readServer, writeServer } from "@/lib/storage/yamlStore";
+import { readAllServers, writeServer } from "@/lib/storage/yamlStore";
 import { ServerConfigSchema } from "@/lib/storage/schemas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const names = await listServers();
-  const items = await Promise.all(
-    names.map(async (name) => {
-      try {
-        return await readServer(name);
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return NextResponse.json({ servers: items.filter(Boolean) });
+  const servers = await readAllServers();
+  servers.sort((a, b) => a.name.localeCompare(b.name));
+  return NextResponse.json({ servers });
 }
 
 export async function POST(req: Request) {
@@ -27,7 +20,8 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const parsed = ServerConfigSchema.safeParse(body);
+  const input = ensureId(body);
+  const parsed = ServerConfigSchema.safeParse(input);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "invalid_server", issues: parsed.error.issues },
@@ -36,4 +30,14 @@ export async function POST(req: Request) {
   }
   await writeServer(parsed.data);
   return NextResponse.json({ server: parsed.data }, { status: 201 });
+}
+
+function ensureId(body: unknown): unknown {
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const obj = body as Record<string, unknown>;
+    if (typeof obj.id !== "string" || obj.id.length === 0) {
+      return { ...obj, id: randomUUID() };
+    }
+  }
+  return body;
 }

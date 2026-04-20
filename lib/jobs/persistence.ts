@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { promises as fs, createReadStream, mkdirSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -91,7 +92,7 @@ export function metaToSnapshot(meta: JobMeta): JobSnapshot {
 
 export async function writeMeta(dir: string, meta: JobMeta): Promise<void> {
   const target = path.join(dir, "meta.json");
-  const tmp = `${target}.tmp`;
+  const tmp = `${target}.${randomUUID()}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(meta, null, 2), "utf8");
   await fs.rename(tmp, target);
 }

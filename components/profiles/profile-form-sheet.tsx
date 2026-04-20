@@ -5,8 +5,8 @@ import { X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { ClientProfileForm, DEFAULT_CLIENT_PROFILE, validateClientProfile } from "./client-profile-form";
-import { DEFAULT_SERVER_CONFIG, ServerConfigForm, validateServerConfig } from "./server-config-form";
+import { ClientProfileForm, makeDefaultClientProfile, validateClientProfile } from "./client-profile-form";
+import { makeDefaultServerConfig, ServerConfigForm, validateServerConfig } from "./server-config-form";
 import type { ClientProfile, ServerConfig } from "@/lib/storage/schemas";
 
 export type ProfileSheetState =
@@ -29,8 +29,8 @@ const API_ITEM = {
 };
 
 export function ProfileFormSheet({ state, onClose, onSaved }: Props) {
-  const [client, setClient] = useState<ClientProfile>(DEFAULT_CLIENT_PROFILE);
-  const [server, setServer] = useState<ServerConfig>(DEFAULT_SERVER_CONFIG);
+  const [client, setClient] = useState<ClientProfile>(() => makeDefaultClientProfile());
+  const [server, setServer] = useState<ServerConfig>(() => makeDefaultServerConfig());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,8 +39,8 @@ export function ProfileFormSheet({ state, onClose, onSaved }: Props) {
     if (!state) return;
     setErrors({});
     if (state.mode === "new") {
-      if (state.kind === "client") setClient(state.seed ?? DEFAULT_CLIENT_PROFILE);
-      else setServer(state.seed ?? DEFAULT_SERVER_CONFIG);
+      if (state.kind === "client") setClient(state.seed ?? makeDefaultClientProfile());
+      else setServer(state.seed ?? makeDefaultServerConfig());
       return;
     }
     // edit: fetch existing
@@ -60,7 +60,8 @@ export function ProfileFormSheet({ state, onClose, onSaved }: Props) {
 
   const isNew = state.mode === "new";
   const title = `${isNew ? "New" : "Edit"} ${LABEL[state.kind]}`;
-  const subpath = state.kind === "client" ? "data/profiles/client" : "data/profiles/servers";
+  const collectionFile =
+    state.kind === "client" ? "data/profiles/clients.yaml" : "data/profiles/servers.yaml";
 
   const onSubmit = async () => {
     // client-side validate
@@ -116,7 +117,7 @@ export function ProfileFormSheet({ state, onClose, onSaved }: Props) {
           <div>
             <h2 className="text-sm font-semibold">{title}</h2>
             <p className="font-mono text-[11px] text-[color:var(--color-muted-foreground)]">
-              {subpath}/
+              {collectionFile} ·{" "}
               {isNew
                 ? state.kind === "client"
                   ? client.name || "<name>"
@@ -124,7 +125,6 @@ export function ProfileFormSheet({ state, onClose, onSaved }: Props) {
                 : state.mode === "edit"
                   ? state.name
                   : "<name>"}
-              .yaml
             </p>
           </div>
           <Button size="icon" variant="ghost" onClick={onClose} title="Close">

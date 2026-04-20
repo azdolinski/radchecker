@@ -31,7 +31,26 @@ export async function PUT(req: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  const parsed = ClientProfileSchema.safeParse({ ...(body as object), name: parsedName.data });
+
+  let stored: Awaited<ReturnType<typeof readProfile>>;
+  try {
+    stored = await readProfile(parsedName.data);
+  } catch {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  const bodyObj = (body as { id?: unknown } | null) ?? {};
+  if (typeof bodyObj.id === "string" && bodyObj.id.length > 0 && bodyObj.id !== stored.id) {
+    return NextResponse.json(
+      { error: "id_mismatch", message: "id is immutable once assigned" },
+      { status: 400 },
+    );
+  }
+  const parsed = ClientProfileSchema.safeParse({
+    ...(body as object),
+    id: stored.id,
+    name: parsedName.data,
+  });
   if (!parsed.success) {
     return NextResponse.json(
       { error: "invalid_profile", issues: parsed.error.issues },

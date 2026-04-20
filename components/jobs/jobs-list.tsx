@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, FlaskConical, Gauge, Radio, Trash2, Users } from "lucide-react";
+import { ExternalLink, FlaskConical, Gauge, Radio, Send, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 const ICON: Record<JobKind, typeof Radio> = {
   "coa-server": Radio,
+  "coa-send": Send,
   "client-session": Users,
   "test-run": FlaskConical,
   "perf-test": Gauge,
@@ -19,6 +20,7 @@ const ICON: Record<JobKind, typeof Radio> = {
 
 const LABEL: Record<JobKind, string> = {
   "coa-server": "CoA Server",
+  "coa-send": "CoA Send",
   "client-session": "Client Session",
   "test-run": "Test Run",
   "perf-test": "Perf Test",

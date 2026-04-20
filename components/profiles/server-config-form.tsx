@@ -2,6 +2,7 @@
 
 import { Field, Section } from "@/components/ui/field";
 import { ServerConfigSchema, type ServerConfig } from "@/lib/storage/schemas";
+import { randomId } from "@/lib/utils";
 
 export interface ServerConfigFormProps {
   value: ServerConfig;
@@ -10,15 +11,20 @@ export interface ServerConfigFormProps {
   mode: "new" | "edit";
 }
 
-export const DEFAULT_SERVER_CONFIG: ServerConfig = {
-  name: "",
-  host: "127.0.0.1",
-  authPort: 1812,
-  acctPort: 1813,
-  secret: "testing123",
-  timeoutMs: 5000,
-  retries: 1,
-};
+export function makeDefaultServerConfig(): ServerConfig {
+  return {
+    id: randomId(),
+    name: "",
+    host: "127.0.0.1",
+    authPort: 1812,
+    acctPort: 1813,
+    coaPort: 3799,
+    secret: "testing123",
+    timeoutMs: 5000,
+    retries: 1,
+    isFavorite: false,
+  };
+}
 
 export function validateServerConfig(v: ServerConfig): Record<string, string> {
   const r = ServerConfigSchema.safeParse(v);
@@ -119,6 +125,25 @@ export function ServerConfigForm({ value, onChange, errors, mode }: ServerConfig
             error={errors["retries"]}
             hint="Retransmissions after timeout (0–10)"
           />
+        </div>
+      </Section>
+
+      <Section title="Preferences">
+        <div className="space-y-1.5">
+          <label htmlFor="isFavorite" className="flex items-start gap-2 text-sm cursor-pointer">
+            <input
+              id="isFavorite"
+              type="checkbox"
+              checked={value.isFavorite}
+              onChange={(e) => set({ isFavorite: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-[color:var(--color-border)] accent-[color:var(--color-primary)]"
+            />
+            <span>Mark as favorite</span>
+          </label>
+          <p className="pl-6 text-[11px] text-[color:var(--color-muted-foreground)]">
+            Preselected by default in the Radius Client page. Only one server can be favorite —
+            setting this clears the previous one.
+          </p>
         </div>
       </Section>
     </div>

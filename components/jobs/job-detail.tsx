@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import Link from "next/link";
-import { ArrowLeft, FlaskConical, Gauge, Radio, Square, Trash2, Users } from "lucide-react";
+import { ArrowLeft, FlaskConical, Gauge, Radio, Send, Square, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import type { JobKind, JobSnapshot } from "@/lib/jobs/types";
 
 const KIND_ICON: Record<JobKind, typeof Radio> = {
   "coa-server": Radio,
+  "coa-send": Send,
   "client-session": Users,
   "test-run": FlaskConical,
   "perf-test": Gauge,
@@ -21,6 +22,7 @@ const KIND_ICON: Record<JobKind, typeof Radio> = {
 
 const KIND_LABEL: Record<JobKind, string> = {
   "coa-server": "CoA Server",
+  "coa-send": "CoA Send",
   "client-session": "Client Session",
   "test-run": "Test Run",
   "perf-test": "Performance Test",
@@ -34,6 +36,12 @@ function fmtDuration(ms: number): string {
   if (m < 60) return `${m}m ${s % 60}s`;
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
+}
+
+function fmtDateTime(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 export function JobDetail({ snapshot }: { snapshot: JobSnapshot }) {
@@ -110,17 +118,13 @@ export function JobDetail({ snapshot }: { snapshot: JobSnapshot }) {
         <Kpi label="Uptime" value={fmtDuration(uptime)} />
         <Kpi
           label="Started"
-          value={
-            snapshot.startedAt
-              ? new Date(snapshot.startedAt).toLocaleTimeString(undefined, { hour12: false })
-              : "—"
-          }
+          value={snapshot.startedAt ? fmtDateTime(snapshot.startedAt) : "—"}
         />
         <Kpi
           label="Ended"
           value={
             snapshot.endedAt
-              ? new Date(snapshot.endedAt).toLocaleTimeString(undefined, { hour12: false })
+              ? fmtDateTime(snapshot.endedAt)
               : effectiveStatus === "running"
                 ? "in progress"
                 : "—"
